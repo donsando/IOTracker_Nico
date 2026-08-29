@@ -1,0 +1,8 @@
+psycopg[binary,pool]
+fastapi
+uvicorn[standard]
+python-dotenv
+shapely
+pyproj
+geopandas
+pillow

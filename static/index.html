@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Simón Movilidad — Monitoreo</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+    #map { position: absolute; inset: 0; }
+    #panel {
+      position: absolute; top: 10px; right: 10px; z-index: 1000;
+      background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.3);
+      padding: 10px 12px; font-size: 12px; width: 230px;
+    }
+    #panel h3 { margin: 0 0 6px; font-size: 13px; }
+    #panel table { width: 100%; border-collapse: collapse; }
+    #panel td, #panel th { padding: 3px 4px; text-align: left; }
+    #panel tr.veh { cursor: pointer; }
+    #panel tr.veh:hover { background: #f0f0f0; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+    .vehicle-icon {
+      position: relative;
+      width: 32px; height: 32px;
+    }
+    .vehicle-icon .fill {
+      position: absolute; inset: 0;
+      background-color: var(--vehicle-color);
+      mask: url("/static/icono_carro_fill.png") center / contain no-repeat;
+      -webkit-mask: url("/static/icono_carro_fill.png") center / contain no-repeat;
+    }
+    .vehicle-icon .outline {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: contain;
+      pointer-events: none;
+    }
+    .alert-icon {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #ff0000;
+    }
+    #toggle {
+      position: absolute; bottom: 20px; left: 10px; z-index: 1000;
+      background: #fff; padding: 8px 10px; border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.3); font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="panel">
+    <h3>Vehículos (último paquete)</h3>
+    <table>
+      <thead><tr><th>ID</th><th>km/h</th><th>Fuel</th><th>Lat, Lon</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <label id="toggle">
+    <input type="checkbox" id="showRoads" /> Mostrar malla vial visible
+  </label>
+
+  <script>
+    const COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#42d4f4", "#f032e6", "#bfef45"];
+
+    const map = L.map("map").setView([4.65, -74.09], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap"
+    }).addTo(map);
+
+    const markers = {};       // device_vehicle_id -> marker
+    const geofenceLayer = L.layerGroup().addTo(map);
+    const roadsLayer = L.layerGroup().addTo(map);
+    const alertLayer = L.layerGroup().addTo(map);
+    const alertIds = new Set();  // id de alertas ya dibujadas
+
+    // ── Geofences (solo lectura, color por tipo) ──────────────
+    fetch("/meta")
+      .then(r => r.json())
+      .then(meta => {
+        for (const g of meta.geofences) {
+          const layer = L.geoJSON(g.geometry, {
+            style: {
+              color: g.color,
+              weight: 2,
+              dashArray: g.mode === "random" ? "6 4" : null,
+              fillOpacity: 0.08
+            }
+          })
+          .bindTooltip(`${g.name} (${g.geofence_type})`)
+          .addTo(geofenceLayer);
+          if (g.geofence_type === "fuel") {
+            layer.bindPopup(
+              `<b>${g.name}</b><br>` +
+              `Tipo: ${g.geofence_type}<br>` +
+              `Modo: ${g.mode}<br>` +
+              `Recarga: +${g.monitor_variable}%/s`
+            );
+          } else {
+            layer.bindPopup(
+              `<b>${g.name}</b><br>` +
+              `Tipo: ${g.geofence_type}<br>` +
+              `Modo: ${g.mode}<br>` +
+              `Valor: ${g.monitor_variable}`
+            );
+          }
+        }
+      });
+
+    // ── Streaming de posiciones ─────────────────────────────────
+    const source = new EventSource("/stream");
+    source.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type !== "snapshot") return;
+      render(msg.vehicles);
+    };
+
+    function render(vehicles) {
+      const rows = document.getElementById("rows");
+      rows.innerHTML = "";
+      const active = new Set();
+      for (const [vid, p] of Object.entries(vehicles)) {
+        active.add(vid);
+        const color = COLORS[parseInt(vid.slice(-1), 10) % COLORS.length];
+        const latlng = [p.latitude, p.longitude];
+        if (!markers[vid]) {
+          const icon = L.divIcon({
+            className: "",
+            html:
+              `<div class="vehicle-icon" style="--vehicle-color:${color}">` +
+              `<div class="fill"></div>` +
+              `<img class="outline" src="/static/icono_carro.png" alt="" />` +
+              `</div>`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+          });
+          markers[vid] = L.marker(latlng, { icon }).bindPopup(`${vid}`).addTo(map);
+        } else {
+          markers[vid].setLatLng(latlng);
+        }
+        const tr = document.createElement("tr");
+        tr.className = "veh";
+        tr.innerHTML =
+          `<td><span class="dot" style="background:${color}"></span>${vid}</td>` +
+          `<td>${p.speed_kmh}</td>` +
+          `<td>${p.fuel_level}</td>` +
+          `<td>${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}</td>`;
+        tr.onclick = () => map.panTo(latlng);
+        rows.appendChild(tr);
+      }
+      for (const vid of Object.keys(markers)) {
+        if (!active.has(vid)) { map.removeLayer(markers[vid]); delete markers[vid]; }
+      }
+    }
+
+    // ── Malla vial bajo demanda (solo el viewport visible) ──────
+    let roadsVisible = false;
+    function loadRoads() {
+      if (!roadsVisible) { roadsLayer.clearLayers(); return; }
+      const b = map.getBounds();
+      fetch(`/edges/bbox?minx=${b.getWest()}&miny=${b.getSouth()}&maxx=${b.getEast()}&maxy=${b.getNorth()}`)
+        .then(r => r.json())
+        .then(fc => {
+          roadsLayer.clearLayers();
+          L.geoJSON(fc, {
+            style: { color: "#0b3d91", weight: 1.5, opacity: 0.9 }
+          }).addTo(roadsLayer);
+        });
+    }
+    document.getElementById("showRoads").addEventListener("change", (e) => {
+      roadsVisible = e.target.checked;
+      loadRoads();
+    });
+    map.on("moveend", loadRoads);
+
+    // ── Alertas de exceso de velocidad (polling) ───────────────
+    let lastAlertId = 0;
+    function loadAlerts() {
+      fetch(`/high-speed-alerts?after_id=${lastAlertId}`)
+        .then(r => r.json())
+        .then(data => {
+          for (const a of data.alerts) {
+            if (alertIds.has(a.id)) continue;
+            alertIds.add(a.id);
+            if (a.id > lastAlertId) lastAlertId = a.id;
+            const g = a.geometry;
+            let latlng;
+            if (g && g.type === "Point") {
+              latlng = [g.coordinates[1], g.coordinates[0]];
+            } else if (a.latitude !== undefined) {
+              latlng = [a.latitude, a.longitude];
+            } else {
+              continue;
+            }
+            let html = `<b>Exceso de velocidad del vehículo ${a.device_vehicle_id}</b>`;
+            if (a.speed_kmh != null && a.speed_limit_kmh != null) {
+              html += `<br>Velocidad: ${a.speed_kmh} km/h<br>Límite: ${a.speed_limit_kmh} km/h`;
+            }
+            const icon = L.divIcon({
+              className: "",
+              html: `<div class="alert-icon"></div>`,
+              iconSize: [6, 6],
+              iconAnchor: [3, 3]
+            });
+            L.marker(latlng, { icon }).bindPopup(html).addTo(alertLayer);
+          }
+        });
+    }
+    loadAlerts();
+    setInterval(loadAlerts, 3000);
+  </script>
+</body>
+</html>

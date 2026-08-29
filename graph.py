@@ -5,6 +5,7 @@ No se carga el grafo completo en memoria: solo se consulta la vecindad
 de un nodo bajo demanda, lo que escala sin problema a ~130k aristas.
 """
 
+import math
 import random
 
 from pyproj import Transformer
@@ -18,14 +19,43 @@ _to_metric = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 _to_4326 = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
 
 
+def _bearing(p1, p2) -> float:
+    """Rumbo en grados [0, 360) desde p1 hacia p2 (coordenadas métricas x, y)."""
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    return (math.degrees(math.atan2(dx, dy)) + 360.0) % 360.0
+
+
+def turn_angle(b1, b2) -> float:
+    """Ángulo de giro en grados [0, 180] entre dos rumbos."""
+    d = abs(b1 - b2) % 360.0
+    return 180.0 - abs(d - 180.0)
+
+
 class Edge:
     def __init__(self, edge_id: int, source: int, target: int, line):
         self.id = edge_id
         self.source = source
         self.target = target
         self.line = line  # LineString en EPSG:4326
+        self.coords = list(line.coords)  # [(lon, lat), ...]
         self.line_metric = transform(_to_metric.transform, line)
+        self.mcoords = list(self.line_metric.coords)  # [(x, y) en metros, ...]
         self.length_m = self.line_metric.length
+
+    def endpoint_metric(self, node_id: int):
+        """Coordenada (x, y) en metros del extremo que coincide con node_id."""
+        if node_id == self.source:
+            return self.mcoords[0]
+        return self.mcoords[-1]
+
+    def out_bearing(self, node_id: int):
+        """Rumbo (grados) de salida del nodo a lo largo de la arista."""
+        if len(self.mcoords) < 2:
+            return None
+        if node_id == self.source:
+            return _bearing(self.mcoords[0], self.mcoords[1])
+        return _bearing(self.mcoords[-1], self.mcoords[-2])
 
 
 class RoadGraph:

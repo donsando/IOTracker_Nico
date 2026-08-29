@@ -94,6 +94,10 @@ class Settings:
     speed_max_change_kmh_per_tick: float
     fuel_consumption: float
 
+    nav_continuity_factor: float
+    nav_max_continuity_gap_m: float
+    log_transitions: bool
+
     geofences_mode: str
     random_geofence_count: int
     random_geofence_type: str
@@ -260,6 +264,15 @@ def load_settings() -> Settings:
         ),
         fuel_consumption=_get(
             "FUEL_CONSUMPTION", 0.005, float, lambda v: v >= 0
+        ),
+        nav_continuity_factor=_get(
+            "NAV_CONTINUITY_FACTOR", 3.0, float, lambda v: v >= 0
+        ),
+        nav_max_continuity_gap_m=_get(
+            "NAV_MAX_CONTINUITY_GAP_M", 3.0, float, lambda v: v >= 0
+        ),
+        log_transitions=_get(
+            "LOG_TRANSITIONS", False, lambda v: str(v).strip().lower() in {"1", "true", "yes", "s", "si", "sí"}
         ),
         geofences_mode=geofences_mode,
         random_geofence_count=random_count,

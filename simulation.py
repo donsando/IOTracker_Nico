@@ -9,12 +9,13 @@ recarga a ritmo constante dentro de las zonas de recarga.
 
 import asyncio
 import logging
+import math
 import random
 from datetime import datetime, timezone
 
 from config import Settings
 from db import insert_report
-from graph import RoadGraph, _to_4326
+from graph import RoadGraph, _bearing, _to_4326, turn_angle
 
 log = logging.getLogger("sim")
 
@@ -39,6 +40,37 @@ class Vehicle:
     @property
     def _ahead_node(self) -> int:
         return self.edge.target if self.forward else self.edge.source
+
+    def _in_bearing(self):
+        """Rumbo de llegada al nodo según la dirección de avance actual."""
+        m = self.edge.mcoords
+        if len(m) < 2:
+            return None
+        if self.forward:
+            return _bearing(m[-2], m[-1])
+        return _bearing(m[1], m[0])
+
+    def _endpoint_gap_m(self, edge, node: int) -> float:
+        """Distancia (m) entre el extremo de la arista actual y la candidata en el nodo."""
+        cur = self.edge.endpoint_metric(node)
+        nxt = edge.endpoint_metric(node)
+        return math.hypot(nxt[0] - cur[0], nxt[1] - cur[1])
+
+    def _pick_next(self, candidates: list, node: int):
+        """Elige la siguiente arista ponderando la continuidad de dirección."""
+        incoming = self._in_bearing()
+        if incoming is None or len(candidates) == 1:
+            return random.choice(candidates)
+        weights = []
+        factor = self.settings.nav_continuity_factor
+        for e in candidates:
+            out = e.out_bearing(node)
+            if out is None:
+                weights.append(1.0)
+                continue
+            ang = turn_angle(incoming, out)
+            weights.append(1.0 + factor * (1.0 - ang / 180.0))
+        return random.choices(candidates, weights=weights, k=1)[0]
 
     async def step(self, graph: RoadGraph) -> dict:
         s = self.settings
@@ -73,13 +105,25 @@ class Vehicle:
                 # Calle sin salida: da la vuelta.
                 self.forward = not self.forward
                 self.pos_m = 0.0
+                if s.log_transitions:
+                    log.info("%s: calle sin salida en nodo %s → invierte dirección", self.id, node)
                 break
-            next_edge = random.choice(neighbors)
+
+            # Descarta aristas con discontinuidad geométrica en el nodo.
+            candidates = [
+                e for e in neighbors
+                if self._endpoint_gap_m(e, node) <= s.nav_max_continuity_gap_m
+            ] or neighbors
+
+            prev_edge_id = self.edge.id
+            next_edge = self._pick_next(candidates, node)
             overshoot = self.pos_m - self.edge.length_m
             self.edge = next_edge
             # Viaja alejándose del nodo de llegada.
             self.forward = next_edge.source == node
             self.pos_m = overshoot
+            if s.log_transitions:
+                log.info("%s: arista %s → nodo %s → arista %s", self.id, prev_edge_id, node, next_edge.id)
 
         self.pos_m = min(self.pos_m, self.edge.length_m)
         point_metric = self.edge.line_metric.interpolate(self.pos_m)

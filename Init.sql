@@ -9,7 +9,7 @@ create extension pg_routing;
 --el tiempo que pasan los vehículos allí dentro, si hay velocidad mayor a 40km/h y el nivel de combustible
 --al entrar y al salir
 
-set search_path to monitoreo_vehiculos, public;
+set search_path to monitoreo_vehiculos, public, reportes_censurados;
 
 --drop table monitoreo_vehiculos.vehicle_reports;
 --select * from vehicle_reports_id_seq
@@ -261,6 +261,13 @@ CREATE TABLE IF NOT EXISTS monitoreo_vehiculos.high_speed_alerts (
         CHECK (speed_kmh > speed_limit_kmh)
 );
 
+ALTER TABLE monitoreo_vehiculos.high_speed_alerts
+ADD COLUMN geom geometry(Point, 4326) NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_high_speed_alerts_geom
+ON monitoreo_vehiculos.high_speed_alerts
+USING GIST (geom);
+
 CREATE INDEX IF NOT EXISTS idx_hsa_vehicle
 ON monitoreo_vehiculos.high_speed_alerts (device_vehicle_id);
 
@@ -326,7 +333,8 @@ BEGIN
         latitude,
         longitude,
         speed_kmh,
-        speed_limit_kmh
+        speed_limit_kmh,
+        geom
     )
     SELECT
         vr.id,
@@ -336,7 +344,14 @@ BEGIN
         vr.latitude,
         vr.longitude,
         vr.speed_kmh,
-        g.monitor_variable
+        g.monitor_variable,
+        ST_SetSRID(
+            ST_MakePoint(
+                vr.longitude,
+                vr.latitude
+            ),
+            4326
+        )
     FROM monitoreo_vehiculos.vehicle_reports vr
     JOIN monitoreo_vehiculos.geofences g
         ON g.active = TRUE
@@ -378,14 +393,83 @@ AFTER INSERT ON monitoreo_vehiculos.vehicle_reports
 FOR EACH ROW
 EXECUTE FUNCTION monitoreo_vehiculos.trg_evaluate_vehicle_report();
 
-truncate table vehicle_reports cascade;
 
-select * from vehicle_reports where device_vehicle_id ilike '%001%'
+-- Roles y userss
+CREATE ROLE administrador;
+CREATE ROLE supervisor;
+CREATE USER admin_user WITH PASSWORD 'admin_password' IN ROLE administrador;
+CREATE USER supervisor_user WITH PASSWORD 'supervisor_password' IN ROLE supervisor;
+
+
+CREATE OR REPLACE FUNCTION reportes_censurados.mask_sensitive_text(p_text text)
+RETURNS text
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT CASE
+    WHEN pg_has_role(current_user, 'administrador', 'member') THEN p_text
+    WHEN p_text IS NULL THEN NULL
+    WHEN length(p_text) <= 4 THEN repeat('*', length(p_text))
+    ELSE left(p_text, 2) || repeat('*', length(p_text) - 4) || right(p_text, 2)
+  END;
+$$;
+
+-- Permisos para que el rol supervisor pueda ejecutar la función
+GRANT EXECUTE ON FUNCTION public.mask_sensitive_text(text) TO supervisor;
+CREATE SCHEMA IF NOT EXISTS reportes_censurados;
+
+truncate table vehicle_reports cascade;
+truncate table high_speed_alerts cascade;
+truncate table vehicles_in_geofence cascade;
+
+select * from vehicle_reports
 
 select id,name,description,geofence_type,'0' as geom, active, created_at, mode, monitor_variable from geofences
 
 select * from high_speed_alerts
 
 select * from vehicles_in_geofence
+
+SELECT
+    hsa.device_vehicle_id,
+    hsa.geom AS geom_alerta,
+    g.geom   AS geom_geocerca,
+	hsa.id   AS alerta_id,
+    g.id     AS geocerca_id
+	--ST_SetSRID(ST_MakePoint(vr.longitude, vr.latitude), 4326) AS geom_reporte
+FROM monitoreo_vehiculos.high_speed_alerts hsa
+CROSS JOIN monitoreo_vehiculos.geofences g
+--cross JOIN monitoreo_vehiculos.vehicle_reports vr
+
+CREATE OR REPLACE VIEW reportes_censurados.high_speed_alerts_view AS
+SELECT
+    id,
+    mask_sensitive_text(device_vehicle_id) AS device_vehicle_id,  -- Enmascarado
+    mask_sensitive_text(vehicle_report_id),
+    mask_sensitive_text(geofence_id),
+    mask_sensitive_text(reported_at),
+    latitude,
+    longitude,
+    speed_kmh,
+    speed_limit_kmh,
+    excess_speed_kmh,
+    created_at,
+    geom  -- Columna geométrica sin cambios
+FROM monitoreo_vehiculos.high_speed_alerts;
+
+select * from high_speed_alerts
+
+set role administrador;
+select current_user;
+reset role;
+
+set role supervisor_user;
+select current_user;
+reset role;
+
+
+
+
+
 
 

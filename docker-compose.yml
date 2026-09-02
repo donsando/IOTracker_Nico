@@ -1,0 +1,59 @@
+services:
+  db:
+    build:
+      context: ./db
+    platform: linux/amd64
+    container_name: simon_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: simon_movilidad
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d simon_movilidad"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "5433:5432"
+
+  app:
+    build: .
+    container_name: simon_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: simon_movilidad
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_MODE: commit
+      SHAPEFILE_PATH: /app/data/Malla_Vial_Integral_Bogota_D_C.shp
+      TOPOLOGY_TOLERANCE: "0.00001"
+      NUM_VEHICLES: "5"
+      TICK_SECONDS: "5"
+      SPEED_MIN_KMH: "20"
+      SPEED_MAX_KMH: "60"
+      SPEED_VARIABLE_RATIO: "0.6"
+      SPEED_CHANGE_INTERVAL_TICKS: "4"
+      SPEED_MAX_CHANGE_KMH_PER_TICK: "5"
+      FUEL_CONSUMPTION: "0.005"
+      NAV_CONTINUITY_FACTOR: "3.0"
+      NAV_MAX_CONTINUITY_GAP_M: "3.0"
+      LOG_TRANSITIONS: "false"
+      GEOFENCES_MODE: manual
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: "9000"
+    volumes:
+      - ./data:/app/data:ro
+    ports:
+      - "9000:9000"
+
+volumes:
+  pgdata:

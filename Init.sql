@@ -44,7 +44,11 @@ ON vehicle_reports (device_vehicle_id, reported_at);
 CREATE INDEX idx_vehicle_reports_timestamp
 ON vehicle_reports (reported_at);
 
+CREATE INDEX idx_vehicle_reports_lat
+ON vehicle_reports (latitude);
 
+CREATE INDEX idx_vehicle_reports_lon
+ON vehicle_reports (longitude);
 
 CREATE TABLE IF NOT EXISTS monitoreo_vehiculos.geofences (
     id BIGSERIAL PRIMARY KEY,
@@ -435,11 +439,11 @@ SELECT
     hsa.geom AS geom_alerta,
     g.geom   AS geom_geocerca,
 	hsa.id   AS alerta_id,
-    g.id     AS geocerca_id
-	--ST_SetSRID(ST_MakePoint(vr.longitude, vr.latitude), 4326) AS geom_reporte
+    g.id     AS geocerca_id,
+	ST_SetSRID(ST_MakePoint(vr.longitude, vr.latitude), 4326) AS geom_reporte
 FROM monitoreo_vehiculos.high_speed_alerts hsa
 CROSS JOIN monitoreo_vehiculos.geofences g
---cross JOIN monitoreo_vehiculos.vehicle_reports vr
+cross JOIN monitoreo_vehiculos.vehicle_reports vr
 
 CREATE OR REPLACE VIEW reportes_censurados.high_speed_alerts_view AS
 SELECT

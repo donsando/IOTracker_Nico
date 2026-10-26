@@ -238,7 +238,7 @@ def load_settings() -> Settings:
     s = Settings(
         db_host=_get("DB_HOST", "localhost"),
         db_port=_get("DB_PORT", 5432, int, lambda v: 1 <= v <= 65535),
-        db_name=_get("DB_NAME", "simon_movilidad"),
+        db_name=_get("DB_NAME", "iotracker_nico_movilidad"),
         db_user=_get("DB_USER", "postgres"),
         db_password=_get("DB_PASSWORD", "", secret=True),
         db_mode=_get("DB_MODE", "rollback"),

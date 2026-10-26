@@ -28,7 +28,7 @@
 			"_parent": {
 				"$ref": "AAAAAAFF+h6SjaM2Hec="
 			},
-			"name": "simon_movilidad.monitoreo_vehiculos",
+			"name": "iotracker_nico_movilidad.monitoreo_vehiculos",
 			"ownedElements": [
 				{
 					"_type": "ERDEntity",

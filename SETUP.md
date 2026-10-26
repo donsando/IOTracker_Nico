@@ -1,4 +1,4 @@
-# SETUP — SIMON Movilidad Prueba Técnica
+# SETUP — IOTracker_Nico Movilidad Prueba Técnica
 # Autor: Nicolas David Sandoval Bermudez
 
 - **Opción A — Docker Compose (recomendada):** levanta la base de datos y
@@ -20,8 +20,8 @@
 ## 1. Clonar el repositorio
 
 ```bash
-git clone https://github.com/donsando/simon_movilidad.git
-cd simon_movilidad
+git clone https://github.com/donsando/IOTracker_Nico.git
+cd IOTracker_Nico
 ```
 
 ## 2. Obtener el shapefile de la malla vial (obligatorio)
@@ -91,14 +91,14 @@ Para detener: `Ctrl+C` y luego `docker compose down`.
 1. Crea la base de datos y habilita las extensiones:
 
    ```bash
-   createdb simon_movilidad
-   psql -d simon_movilidad -c "CREATE EXTENSION postgis; CREATE EXTENSION pgrouting; CREATE SCHEMA monitoreo_vehiculos;"
+   createdb iotracker_nico_movilidad
+   psql -d iotracker_nico_movilidad -c "CREATE EXTENSION postgis; CREATE EXTENSION pgrouting; CREATE SCHEMA monitoreo_vehiculos;"
    ```
 
 2. Aplica el esquema inicial (tablas, índices y geofences de ejemplo):
 
    ```bash
-   psql -d simon_movilidad -f db/init/01_schema.sql
+   psql -d iotracker_nico_movilidad -f db/init/01_schema.sql
    ```
 
 ### B.2 Entorno de Python

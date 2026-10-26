@@ -1,4 +1,4 @@
-# SETUP — IOTracker_Nico Movilidad Prueba Técnica
+# SETUP — IOTracker_Nico Movilidad
 # Autor: Nicolas David Sandoval Bermudez
 
 - **Opción A — Docker Compose (recomendada):** levanta la base de datos y
